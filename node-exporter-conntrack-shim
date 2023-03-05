@@ -1,0 +1,56 @@
+#!/usr/bin/env python
+
+import subprocess
+import sys
+
+def parse_stat(stat_line: str):
+    return {k: int(v) for k, v in (e.split('=') for e in stat_line.split()) if k != 'cpu'}
+
+zeroes = "cpu=0   	found=0 invalid=0 insert=0 insert_failed=0 drop=0 early_drop=0 error=0 search_restart=0"
+agg_stats = parse_stat(zeroes)
+entries = 0
+
+try:
+    # conntrack_S = subprocess.Popen(['cat', 'conntrack_S.txt'], stdout=subprocess.PIPE)
+    # conntrack_L = subprocess.Popen(['cat', 'conntrack_L.txt'], stdout=subprocess.PIPE)
+
+    conntrack_S = subprocess.Popen(['/usr/sbin/conntrack', '-S'], stdout=subprocess.PIPE)
+    conntrack_L = subprocess.Popen(['/usr/sbin/conntrack', '-L'], stdout=subprocess.PIPE)
+    entries = sum(1 for _ in conntrack_L.stdout)
+
+    for line in conntrack_S.stdout:
+        per_cpu_stat = parse_stat(line.decode("utf-8").rstrip())
+        agg_stats = {k: agg_stats.get(k, 0) + per_cpu_stat.get(k, 0)
+                    for k in agg_stats.keys()}
+except Exception as e:
+    print(e, file=sys.stderr)
+    sys.exit(1)
+
+locals().update(agg_stats)
+
+print(f'''
+# HELP node_nf_conntrack_entries Number of currently allocated flow entries for connection tracking.
+# TYPE node_nf_conntrack_entries gauge
+node_nf_conntrack_entries {entries}
+# HELP node_nf_conntrack_stat_drop Number of packets dropped due to conntrack failure.
+# TYPE node_nf_conntrack_stat_drop gauge
+node_nf_conntrack_stat_drop {drop}
+# HELP node_nf_conntrack_stat_early_drop Number of dropped conntrack entries to make room for new ones, if maximum table size was reached.
+# TYPE node_nf_conntrack_stat_early_drop gauge
+node_nf_conntrack_stat_early_drop {early_drop}
+# HELP node_nf_conntrack_stat_found Number of searched entries which were successful.
+# TYPE node_nf_conntrack_stat_found gauge
+node_nf_conntrack_stat_found {found}
+# HELP node_nf_conntrack_stat_insert Number of entries inserted into the list.
+# TYPE node_nf_conntrack_stat_insert gauge
+node_nf_conntrack_stat_insert {insert}
+# HELP node_nf_conntrack_stat_insert_failed Number of entries for which list insertion was attempted but failed.
+# TYPE node_nf_conntrack_stat_insert_failed gauge
+node_nf_conntrack_stat_insert_failed {insert_failed}
+# HELP node_nf_conntrack_stat_invalid Number of packets seen which can not be tracked.
+# TYPE node_nf_conntrack_stat_invalid gauge
+node_nf_conntrack_stat_invalid {invalid}
+# HELP node_nf_conntrack_stat_search_restart Number of conntrack table lookups which had to be restarted due to hashtable resizes.
+# TYPE node_nf_conntrack_stat_search_restart gauge
+node_nf_conntrack_stat_search_restart {search_restart}
+''')
